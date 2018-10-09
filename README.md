@@ -52,7 +52,7 @@ In the example, channel will be auto created if no one between your account and 
 
 This behavior can be changed, the deposit value is determined by `deposit_strategy`, which is a callable function with price of endpoint as input parameter.
 
-You can pass in `deposit_strategy` when init `Atn` or use `set_deposit_strategy` method to change it. It can be set with `None` to disable auto create or topup the channel, then you should create or topup channel by yourself before call the `call_dbot_api` method. Here is an example.
+You can pass in `deposit_strategy` when init `Atn` or use `set_deposit_strategy` method to change it. It can be set `None` to disable auto create or topup the channel, then you should create or topup channel by yourself before call the `call_dbot_api` method. Here is an example.
 
 
 ```python
@@ -89,7 +89,7 @@ if channel.deposit - channel.balance < price:
 # call DBot API 12 times
 for i in range(12)
     print('Call {}:'.format(call_count))
-    # AtnException will raise when eleventh call for insufficient balance, you need catch it
+    # AtnException will raise when eleventh call for insufficient balance, catch it in a production environment
     response = atn.call_dbot_api(dbot_address=DBOTADDRESS,
                                 uri=URI,
                                 method=METHOD,
