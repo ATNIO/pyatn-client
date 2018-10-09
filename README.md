@@ -5,10 +5,10 @@
 
 ## Install
 
-To install Python ATN client, simply use pip:
+Python ATN client depends on python3.6+, simply use pip3 to install:
 
 ```bash
-pip install pyatn-client
+pip3 install pyatn-client
 ```
 
 ## Usage
@@ -50,7 +50,7 @@ atn.close_channel(DBOTADDRESS)
 
 In the example, channel will be auto created if no one between your account and the DBot, and channel will be topuped if the remain balance in the channel is not enough. The default deposit value is 10 times the price of endpoint.
 
-This behavior can be changed, the deposit value is determined by `deposit_strategy`, which is a callable function which input parameter is the price of endpoint.
+This behavior can be changed, the deposit value is determined by `deposit_strategy`, which is a callable function with price of endpoint as input parameter.
 
 You can pass in `deposit_strategy` when init `Atn` or use `set_deposit_strategy` method to change it. It can be set with `None` to disable auto create or topup the channel, then you should create or topup channel by yourself before call the `call_dbot_api` method. Here is an example.
 
