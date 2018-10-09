@@ -1,3 +1,4 @@
+import os
 import logging
 from enum import Enum
 
@@ -13,8 +14,7 @@ from ..utils import (
     keccak256
 )
 
-log = logging.getLogger(__name__)
-
+logger = logging.getLogger('atn.microraiden' + os.path.splitext(os.path.basename(__file__))[0])
 
 class Channel:
     class State(Enum):
@@ -79,18 +79,18 @@ class Channel:
         Attempts to increase the deposit in an existing channel. Block until confirmation.
         """
         if self.state != Channel.State.open:
-            log.error('Channel must be open to be topped up.')
+            logger.error('Channel must be open to be topped up.')
             return
 
         _balance = self.core.web3.eth.getBalance(self.core.address)
         if _balance < deposit:
-            log.error(
+            logger.error(
                 'Insufficient tokens available for the specified topup ({}/{})'
                 .format(_balance, deposit)
             )
             return None
 
-        log.info('Topping up channel to {} created at block #{} by {} tokens.'.format(
+        logger.info('Topping up channel to {} created at block #{} by {} ATN.'.format(
             self.receiver, self.block, deposit
         ))
         current_block = self.core.web3.eth.blockNumber
@@ -110,7 +110,7 @@ class Channel:
         )
         self.core.web3.eth.sendRawTransaction(tx)
 
-        log.debug('Waiting for topup confirmation event...')
+        logger.debug('Waiting for topup confirmation event...')
         event = get_event_blocking(
             self.core.channel_manager,
             'ChannelToppedUp',
@@ -123,11 +123,11 @@ class Channel:
         )
 
         if event:
-            log.debug('Successfully topped up channel in block {}.'.format(event['blockNumber']))
+            logger.debug('Successfully topped up channel in block {}.'.format(event['blockNumber']))
             self.deposit += deposit
             return event
         else:
-            log.error('No event received.')
+            logger.error('No event received.')
             return None
 
     def close(self, balance=None):
@@ -136,9 +136,9 @@ class Channel:
         locally stored balance signature. Blocks until a confirmation event is received or timeout.
         """
         if self.state != Channel.State.open:
-            log.error('Channel must be open to request a close.')
+            logger.error('Channel must be open to request a close.')
             return
-        log.info('Requesting close of channel to {} created at block #{}.'.format(
+        logger.info('Requesting close of channel to {} created at block #{}.'.format(
             self.receiver, self.block
         ))
         current_block = self.core.web3.eth.blockNumber
@@ -158,7 +158,7 @@ class Channel:
         )
         self.core.web3.eth.sendRawTransaction(tx)
 
-        log.debug('Waiting for close confirmation event...')
+        logger.debug('Waiting for close confirmation event...')
         event = get_event_blocking(
             self.core.channel_manager,
             'ChannelCloseRequested',
@@ -171,25 +171,25 @@ class Channel:
         )
 
         if event:
-            log.debug('Successfully sent channel close request in block {}.'.format(
+            logger.debug('Successfully sent channel close request in block {}.'.format(
                 event['blockNumber']
             ))
             self.state = Channel.State.settling
             return event
         else:
-            log.error('No event received.')
+            logger.error('No event received.')
             return None
 
-    def close_cooperatively(self, closing_sig: bytes):
+    def close_cooperatively(self, closing_sig: bytes, contract_receiver_owner: str = None):
         """
         Attempts to close the channel immediately by providing a hash of the channel's balance
         proof signed by the receiver. This signature must correspond to the balance proof stored in
         the passed channel state.
         """
         if self.state == Channel.State.closed:
-            log.error('Channel must not be closed already to be closed cooperatively.')
+            logger.error('Channel must not be closed already to be closed cooperatively.')
             return None
-        log.info('Attempting to cooperatively close channel to {} created at block #{}.'.format(
+        logger.info('Attempting to cooperatively close channel to {} created at block #{}.'.format(
             self.receiver, self.block
         ))
         current_block = self.core.web3.eth.blockNumber
@@ -200,9 +200,17 @@ class Channel:
             closing_sig,
             self.core.channel_manager.address
         )
-        if not is_same_address(receiver_recovered, self.receiver):
-            log.error('Invalid closing signature.')
-            return None
+        bytecode = self.core.web3.eth.getCode(self.receiver)
+        if bytecode:
+            # The channel's receiver is a contract, the close_signature should be signed by it's owner
+            assert(contract_receiver_owner is not None)
+            if contract_receiver_owner is not None and not is_same_address(receiver_recovered, contract_receiver_owner):
+                logger.error('Invalid closing signature')
+                return None
+        else:
+            if not is_same_address(receiver_recovered, self.receiver):
+                logger.error('Invalid closing signature.')
+                return None
 
         tx = create_signed_contract_transaction(
             self.core.private_key,
@@ -218,7 +226,7 @@ class Channel:
         )
         self.core.web3.eth.sendRawTransaction(tx)
 
-        log.debug('Waiting for settle confirmation event...')
+        logger.debug('Waiting for settle confirmation event...')
         event = get_event_blocking(
             self.core.channel_manager,
             'ChannelSettled',
@@ -231,11 +239,11 @@ class Channel:
         )
 
         if event:
-            log.debug('Successfully closed channel in block {}.'.format(event['blockNumber']))
+            logger.debug('Successfully closed channel in block {}.'.format(event['blockNumber']))
             self.state = Channel.State.closed
             return event
         else:
-            log.error('No event received.')
+            logger.error('No event received.')
             return None
 
     def settle(self):
@@ -245,9 +253,9 @@ class Channel:
         received or timeout.
         """
         if self.state != Channel.State.settling:
-            log.error('Channel must be in the settlement period to settle.')
+            logger.error('Channel must be in the settlement period to settle.')
             return None
-        log.info('Attempting to settle channel to {} created at block #{}.'.format(
+        logger.info('Attempting to settle channel to {} created at block #{}.'.format(
             self.receiver, self.block
         ))
 
@@ -258,7 +266,7 @@ class Channel:
         current_block = self.core.web3.eth.blockNumber
         wait_remaining = settle_block - current_block
         if wait_remaining > 0:
-            log.warning('{} more blocks until this channel can be settled. Aborting.'.format(
+            logger.warning('{} more blocks until this channel can be settled. Aborting.'.format(
                 wait_remaining
             ))
             return None
@@ -274,7 +282,7 @@ class Channel:
         )
         self.core.web3.eth.sendRawTransaction(tx)
 
-        log.debug('Waiting for settle confirmation event...')
+        logger.debug('Waiting for settle confirmation event...')
         event = get_event_blocking(
             self.core.channel_manager,
             'ChannelSettled',
@@ -287,12 +295,12 @@ class Channel:
         )
 
         if event:
-            log.debug('Successfully settled channel in block {}.'.format(event['blockNumber']))
+            logger.debug('Successfully settled channel in block {}.'.format(event['blockNumber']))
             self.state = Channel.State.closed
             self.on_settle(self)
             return event
         else:
-            log.error('No event received.')
+            logger.error('No event received.')
             return None
 
     def create_transfer(self, value):
@@ -302,18 +310,18 @@ class Channel:
         """
         assert value >= 0
         if self.remain_balance() < value:
-            log.error(
+            logger.error(
                 'Insufficient funds on channel. Needed: {}. Available: {}/{}.'
                 .format(value, self.deposit - self.balance, self.deposit)
             )
             return None
 
-        log.debug('Signing new transfer of value {} on channel to {} created at block #{}.'.format(
+        logger.debug('Signing new transfer of value {} on channel to {} created at block #{}.'.format(
             value, self.receiver, self.block
         ))
 
         if self.state == Channel.State.closed:
-            log.error('Channel must be open to create a transfer.')
+            logger.error('Channel must be open to create a transfer.')
             return None
 
         self.update_balance(self.balance + value)

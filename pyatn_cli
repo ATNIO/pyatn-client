@@ -1,0 +1,128 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import re
+import json
+import click
+import importlib.util
+import logging
+
+from pyatn_client import Atn
+
+def load_module(module_name, path):
+    spec = importlib.util.spec_from_file_location(module_name, os.path.join(path, module_name + '.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+@click.group()
+def cli():
+    pass
+
+@cli.command()
+@click.option(
+    '--pk-file',
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    required=True,
+    help='Path to private key file or a hex-encoded private key.'
+)
+@click.option(
+    '--pw-file',
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    required=True,
+    help='Path to file containing the password for the private key specified.'
+)
+@click.option(
+    '--http-provider',
+    required=True,
+    help='Http Provider'
+)
+@click.option(
+    '--dbot-address',
+    required=True,
+    help='dbot address')
+@click.option(
+    '--data',
+    required=True,
+    help="requests data for the dbot endpoint")
+def call(
+        pk_file: str,
+        pw_file: str,
+        http_provider: str,
+        dbot_address: str,
+        data: str
+):
+    """
+    Sub command for API users to call DBot's API.
+    """
+
+    requests_test = load_module(os.path.splitext(os.path.basename(data))[0],
+                                os.path.dirname(os.path.abspath(data)))
+    requests_data = requests_test.data
+
+    atn = Atn(
+        http_provider=http_provider,
+        pk_file=pk_file,
+        pw_file=pw_file
+    )
+
+    #  channel = atn.get_suitable_channel(dbot_address, requests_data['endpoint']['uri'], requests_data['endpoint']['method'])
+    response = atn.call_dbot_api(dbot_address,
+                                 uri=requests_data['endpoint']['uri'],
+                                 method=requests_data['endpoint']['method'],
+                                 **requests_data['kwargs'])
+
+    if response.status_code == 200:
+        click.echo('Got 200 Response. Content-Type: {}'.format(response.headers['Content-Type']))
+        if re.match('^json/', response.headers['Content-Type']):
+            click.echo(response.headers)
+            click.echo(response.json)
+        elif response.headers['Content-Type'].startswith('audio') or response.headers['Content-Type'].startswith('image'):
+            click.echo(response.headers)
+            response_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'response_file')
+            with open(response_file, 'wb') as f:
+                f.write(response.content)
+            click.echo('Save response file at {}'.format(response_file))
+        else:
+            click.echo(response.headers)
+            click.echo(response.text)
+    else:
+        click.echo('Got {} Response.'.format(response.status_code))
+        click.echo(response.text)
+
+
+@cli.command()
+@click.option(
+    '--pk-file',
+    required=True,
+    help='Path to private key file or a hex-encoded private key.'
+)
+@click.option(
+    '--pw-file',
+    default=None,
+    help='Path to file containing the password for the private key specified.',
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True)
+)
+@click.option(
+    '--http-provider',
+    default='http://0.0.0.0:8545',
+    help='Http Provider'
+)
+@click.option('--dbot-address', required=True, help='dbot address')
+def close(
+    pk_file: str,
+    pw_file: str,
+    http_provider: str,
+    dbot_address: str,
+):
+    atn = Atn(
+        http_provider=http_provider,
+        pk_file=pk_file,
+        pw_file=pw_file
+    )
+
+    atn.close_channel(dbot_address)
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    cli()

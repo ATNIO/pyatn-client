@@ -1,3 +1,4 @@
+import os
 import logging
 import time
 from typing import Callable, Tuple, Union
@@ -12,7 +13,7 @@ from ..header import HTTPHeaders
 from ..utils import verify_balance_proof
 from .client import Client, Channel
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger('dbot.' + os.path.splitext(os.path.basename(__file__))[0])
 
 
 class Session(requests.Session):
@@ -59,18 +60,18 @@ class Session(requests.Session):
 
     def close_channel(self, endpoint_url: str = None):
         if self.channel is None:
-            log.debug('No channel to close.')
+            logger.debug('No channel to close.')
             return
 
         if endpoint_url is None:
             endpoint_url = self.endpoint_url
 
         if endpoint_url is None:
-            log.warning('No endpoint URL specified to request a closing signature.')
+            logger.warning('No endpoint URL specified to request a closing signature.')
             self.on_cooperative_close_denied()
             return
 
-        log.debug(
+        logger.debug(
             'Requesting closing signature from server for balance {} on channel {}/{}/{}.'
             .format(
                 self.channel.balance,
@@ -94,7 +95,7 @@ class Session(requests.Session):
                 data={'balance': self.channel.balance}
             )
         except requests.exceptions.ConnectionError as err:
-            log.error(
+            logger.error(
                 'Could not get a response from the server while requesting a closing signature: {}'
                 .format(err)
             )
@@ -177,7 +178,7 @@ class Session(requests.Session):
             response: Response,
             **kwargs
     ) -> bool:
-        log.warning(
+        logger.warning(
             'Channel not registered by server. Retrying in {} seconds.'
             .format(self.retry_interval)
         )
@@ -191,7 +192,7 @@ class Session(requests.Session):
             response: Response,
             **kwargs
     ) -> bool:
-        log.warning(
+        logger.warning(
             'Newly created channel does not have enough confirmations yet. Retrying in {} seconds.'
             .format(self.retry_interval)
         )
@@ -205,7 +206,7 @@ class Session(requests.Session):
         response: Response,
         **kwargs
     ) -> bool:
-        log.warning(
+        logger.warning(
             'Server was unable to verify the transfer - '
             'Either the balance was greater than deposit'
             'or the balance proof contained a lower balance than expected'
@@ -221,7 +222,7 @@ class Session(requests.Session):
             response: Response,
             **kwargs
     ) -> bool:
-        log.debug('Server claims an invalid amount sent.')
+        logger.debug('Server claims an invalid amount sent.')
         balance_sig = response.headers.get(HTTPHeaders.BALANCE_SIGNATURE)
         if balance_sig:
             balance_sig = decode_hex(balance_sig)
@@ -240,19 +241,19 @@ class Session(requests.Session):
 
         if verified:
             if last_balance == self.channel.balance:
-                log.error(
+                logger.error(
                     'Server tried to disguise the last unconfirmed payment as a confirmed payment.'
                 )
                 return False
             else:
-                log.debug(
+                logger.debug(
                     'Server provided proof for a different channel balance ({}). Adopting.'.format(
                         last_balance
                     )
                 )
                 self.channel.update_balance(last_balance)
         else:
-            log.debug(
+            logger.debug(
                 'Server did not provide proof for a different channel balance. Reverting to 0.'
             )
             self.channel.update_balance(0)
@@ -272,7 +273,7 @@ class Session(requests.Session):
         price = int(response.headers[HTTPHeaders.PRICE])
         assert price > 0
 
-        log.debug('Preparing payment of price {} to {}.'.format(price, receiver))
+        logger.debug('Preparing payment of price {} to {}.'.format(price, receiver))
 
         if self.channel is None or self.channel.state != Channel.State.open:
             new_channel = self.client.get_suitable_channel(
@@ -282,7 +283,7 @@ class Session(requests.Session):
             if self.channel is not None and new_channel != self.channel:
                 # This should only happen if there are multiple open channels to the target or a
                 # channel has been closed while the session is still being used.
-                log.warning(
+                logger.warning(
                     'Channels switched. Previous balance proofs not applicable to new channel.'
                 )
 
@@ -291,11 +292,11 @@ class Session(requests.Session):
             self.channel.topup(self.topup_deposit(price))
 
         if self.channel is None:
-            log.error("No channel could be created or sufficiently topped up.")
+            logger.error("No channel could be created or sufficiently topped up.")
             return False
 
         self.channel.create_transfer(price)
-        log.debug(
+        logger.debug(
             'Sending new balance proof. New channel balance: {}/{}'
             .format(self.channel.balance, self.channel.deposit)
         )
@@ -303,22 +304,22 @@ class Session(requests.Session):
         return True
 
     def on_http_error(self, method: str, url: str, response: Response, **kwargs) -> bool:
-        log.error(
+        logger.error(
             'Unexpected server error, status code {}'.format(response.status_code)
         )
         return False
 
     def on_init(self, method: str, url: str, **kwargs):
-        log.debug('Starting {} request loop for resource at {}.'.format(method, url))
+        logger.debug('Starting {} request loop for resource at {}.'.format(method, url))
 
     def on_exit(self, method: str, url: str, response: Response, **kwargs):
         pass
 
     def on_success(self, method: str, url: str, response: Response, **kwargs) -> bool:
-        log.debug('Resource received.')
+        logger.debug('Resource received.')
         cost = response.headers.get(HTTPHeaders.COST)
         if cost is not None:
-            log.debug('Final cost was {}.'.format(cost))
+            logger.debug('Final cost was {}.'.format(cost))
         return False
 
     def on_invalid_contract_address(
@@ -329,13 +330,13 @@ class Session(requests.Session):
             **kwargs
     ) -> bool:
         contract_address = response.headers.get(HTTPHeaders.CONTRACT_ADDRESS)
-        log.error(
+        logger.error(
             'Server sent no or invalid contract address: {}.'.format(contract_address)
         )
         return False
 
     def on_cooperative_close_denied(self, response: Response = None):
-        log.warning(
+        logger.warning(
             'No valid closing signature received. Closing noncooperatively on a balance of 0.'
         )
         self.channel.close(0)
@@ -343,5 +344,5 @@ class Session(requests.Session):
     def on_http_response(self, method: str, url: str, response: Response, **kwargs) -> bool:
         """Called whenever server returns a reply.
         Return False to abort current request."""
-        log.debug('Response received: {}'.format(response.headers))
+        logger.debug('Response received: {}'.format(response.headers))
         return True

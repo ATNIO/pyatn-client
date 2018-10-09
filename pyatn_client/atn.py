@@ -1,5 +1,6 @@
 import os
 import logging
+import logging.config
 import time
 from typing import Callable, Tuple, Union
 import json
@@ -16,8 +17,13 @@ from .microraiden.client import Client, Channel
 from .microraiden.utils import verify_balance_proof
 
 from .utils import remove_slash_prefix, tobytes32
+from .log import AtnLogger
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger('atn')
+
+class AtnException(Exception):
+    """Base exception for Database"""
+    pass
 
 def _make_dbot_contract(web3, dbot_address):
     contracts_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contracts.json')
@@ -38,37 +44,46 @@ class Atn():
         http_provider: str,
         pk_file: str,
         pw_file: str,
-        initial_deposit: Callable[[int], int] = lambda price: 10 * price,
-        topup_deposit: Callable[[int], int] = lambda price: 5 * price
+        deposit_strategy: Callable[[int], int] = lambda value: 10 * value,
+        debug: bool = False
     ) -> None:
+        logging.config.dictConfig(AtnLogger('atn', debug).config())
+
         w3 = Web3(HTTPProvider(http_provider))
         w3.middleware_stack.inject(geth_poa_middleware, layer=0)
 
-        self.initial_deposit = initial_deposit
-        self.topup_deposit = topup_deposit
-
-        self.channel = None  # type: Channel
+        self.deposit_strategy = deposit_strategy
         self.channel_client = Client(
             private_key=pk_file,
             key_password_path=pw_file,
             web3=w3
         )
 
-    def get_dbot_name(self, dbot_address):
+    def set_deposit_strategy(self, deposit_strategy: Callable[[int], int]):
+        self.deposit_strategy = deposit_strategy
+
+    def get_dbot_name(self, dbot_address: str):
         dbot_address = Web3.toChecksumAddress(dbot_address)
         w3 = self.channel_client.context.web3
         Dbot = _make_dbot_contract(w3, dbot_address)
         name = Dbot.functions.name().call()
         return name.decode('utf-8').rstrip('\0')
 
-    def get_dbot_domain(self, dbot_address):
+    def get_dbot_domain(self, dbot_address: str):
         dbot_address = Web3.toChecksumAddress(dbot_address)
         w3 = self.channel_client.context.web3
         Dbot = _make_dbot_contract(w3, dbot_address)
         domain = Dbot.functions.domain().call()
         return domain.decode('utf-8').rstrip('\0')
 
-    def get_price(self, dbot_address, uri, method):
+    def get_dbot_owner(self, dbot_address: str):
+        dbot_address = Web3.toChecksumAddress(dbot_address)
+        w3 = self.channel_client.context.web3
+        Dbot = _make_dbot_contract(w3, dbot_address)
+        owner = Dbot.functions.getOwner().call()
+        return owner
+
+    def get_price(self, dbot_address: str, uri: str, method: str):
         dbot_address = Web3.toChecksumAddress(dbot_address)
         w3 = self.channel_client.context.web3
         Dbot = _make_dbot_contract(w3, dbot_address)
@@ -76,17 +91,17 @@ class Atn():
         endpoint = Dbot.functions.keyToEndPoints(key).call()
         # TODO handle method case and how to check if the endpoint exist
         if (int(endpoint[1]) == 0):
-            raise Exception('no such endpoint: uri = {}, method = {}'.format(uri, method))
+            raise AtnException('no such endpoint: uri = {}, method = {}'.format(uri, method))
         else:
             return int(endpoint[1])
 
-    def get_dbot_channel(self, dbot_address):
+    def get_dbot_channel(self, dbot_address: str):
         dbot_address = Web3.toChecksumAddress(dbot_address)
         domain = self.get_dbot_domain(dbot_address)
-        channel = self._get_channel_info(dbot_address)
-        backend = domain if domain.lower().startswith('http') else 'http://{}'.format(domain)
+        channel = self.get_channel(dbot_address)
+        dbot_url = domain if domain.lower().startswith('http') else 'http://{}'.format(domain)
         if channel is not None:
-            url = '{}/api/v1/dbots/{}/channels/{}/{}'.format(backend,
+            url = '{}/api/v1/dbots/{}/channels/{}/{}'.format(dbot_url,
                                                              channel.receiver,
                                                              channel.sender,
                                                              channel.block
@@ -101,82 +116,110 @@ class Atn():
 
     def wait_dbot_sync(self, dbot_address: str, retry_interval: int=5, retry_times: int=5):
         dbot_address = Web3.toChecksumAddress(dbot_address)
-        if self.channel is None:
-            log.warning('No Channel with dbot({}) on chain')
+        channel = self.get_channel(dbot_address)
+        if channel is None:
+            logger.warning('No Channel with dbot({}) on chain'.format(dbot_address))
             return
         dbot_channel = self.get_dbot_channel(dbot_address)
         remain_times = retry_times
-        while retry_times > 0 and (dbot_channel is None or int(dbot_channel['deposit']) != self.channel.deposit):
-            log.info('Channel state with dbot({}) has not synced by dbot server, retry after {}s'.format(
+        while retry_times > 0 and (dbot_channel is None or int(dbot_channel['deposit']) != channel.deposit):
+            logger.info('Channel state with dbot({}) has not synced by dbot server, retry after {}s'.format(
                 dbot_address, retry_interval))
             remain_times = remain_times - 1
             time.sleep(retry_interval)
             dbot_channel = self.get_dbot_channel(dbot_address)
-        if dbot_channel is not None and int(dbot_channel['deposit']) == self.channel.deposit:
-            self.channel.update_balance(int(dbot_channel['balance']))
+        if dbot_channel is not None and int(dbot_channel['deposit']) == channel.deposit:
+            channel.update_balance(int(dbot_channel['balance']))
         else:
-            raise Exception('Channel state with dbot({}) can not synced by dbot server.'.format(dbot_address))
+            raise AtnException('Channel state with dbot({}) can not synced by dbot server.'.format(dbot_address))
+
+    def get_suitable_channel(self,
+                             dbot_address: str,
+                             price: int
+                             ) -> Channel:
+        if self.deposit_strategy is None:
+            channel = self.get_channel(dbot_address)
+            if channel is None:
+                logger.error('No channel was found with DBot({}), please create a channel first'.format(dbot_address))
+                raise AtnException('No channel was found with DBot({})'.format(dbot_address))
+            if not channel.is_suitable(price):
+                logger.error('Insufficient balance in the channel (remain balance = {}), please topup first'.format(
+                    channel.remain_balance()))
+                raise AtnException('Insufficient balance in the channel (remain balance = {}), please topup first'.format(
+                    channel.remain_balance()))
+            return channel
+        else:
+            channel = self.channel_client.get_suitable_channel(
+                dbot_address, price, self.deposit_strategy, self.deposit_strategy
+            )
+            if channel is None:
+                logger.error("No channel could be created or sufficiently topped up.")
+                raise AtnException('No channel could be created or sufficiently topped up.')
+
+            self.wait_dbot_sync(dbot_address)
+            if channel.remain_balance() < price:
+                channel.topup(self.deposit_strategy(price))
+                self.wait_dbot_sync(dbot_address)
+            return channel
 
     def call_dbot_api(self, dbot_address: str, uri: str, method: str, **requests_kwargs) -> Response:
-        #  if self.channel is None or self.channel.state != Channel.State.open:
         dbot_address = Web3.toChecksumAddress(dbot_address)
         price = self.get_price(dbot_address, uri, method)
-        self.channel = self.channel_client.get_suitable_channel(
-            dbot_address, price, self.initial_deposit, self.topup_deposit
-        )
-        if self.channel is None:
-            log.error("No channel could be created or sufficiently topped up.")
-            raise Exception('No channel could be created or sufficiently topped up.')
-
-        self.wait_dbot_sync(dbot_address)
-
-        if self.channel.remain_balance() < price:
-            self.channel.topup(self.topup_deposit(price))
-            self.wait_dbot_sync(dbot_address)
-
-        self.channel.create_transfer(price)
+        channel = self.get_suitable_channel(dbot_address, price)
+        channel.create_transfer(price)
         domain = self.get_dbot_domain(dbot_address)
-        url = '{}/call/{}/{}'.format(domain if domain.lower().startswith('http') else 'http://{}'.format(domain),
-                                     dbot_address, remove_slash_prefix(uri))
-        return self._request_resource(method, url, **requests_kwargs)
+        dbot_url = domain if domain.lower().startswith('http') else 'http://{}'.format(domain)
+        url = '{}/call/{}/{}'.format(dbot_url, dbot_address, remove_slash_prefix(uri))
+        return self._request(channel, method, url, **requests_kwargs)
 
+    def open_channel(self, dbot_address: str, deposit: int):
+        channel = self.get_channel(dbot_address)
+        if channel is not None:
+            logger.warning('A channel is exist')
+            return channel
+        return self.channel_client.open_channel(dbot_address, deposit)
 
-    def close_channel(self, endpoint_url: str = None):
-        if self.channel is None:
-            log.debug('No channel to close.')
+    def topup_channel(self, dbot_address: str, deposit: int):
+        return self.channel_client.topup_channel(dbot_address, deposit)
+
+    def close_channel(self, dbot_address: str):
+        channel = self.get_channel(dbot_address)
+        if channel is None:
+            logger.error('No channel to close.')
             return
 
-        if endpoint_url is None:
-            endpoint_url = self.endpoint_url
+        try:
+            self.wait_dbot_sync(dbot_address)
+        except Exception as err:
+            logger.error('Dbot server can not sync the channel')
+            self.on_cooperative_close_denied(dbot_address, response)
+        domain = self.get_dbot_domain(dbot_address)
+        dbot_url = domain if domain.lower().startswith('http') else 'http://{}'.format(domain)
 
-        if endpoint_url is None:
-            log.warning('No endpoint URL specified to request a closing signature.')
-            self.on_cooperative_close_denied()
-            return
-
-        log.debug(
+        logger.debug(
             'Requesting closing signature from server for balance {} on channel {}/{}/{}.'
             .format(
-                self.channel.balance,
-                self.channel.sender,
-                self.channel.sender,
-                self.channel.block
+                channel.balance,
+                channel.receiver,
+                channel.sender,
+                channel.block
             )
         )
-        url = '{}/api/1/channels/{}/{}'.format(
-            endpoint_url,
-            self.channel.sender,
-            self.channel.block
+        url = '{}/api/v1/channels/{}/{}/{}'.format(
+            dbot_url,
+            channel.receiver,
+            channel.sender,
+            channel.block
         )
 
         try:
             response = requests.request(
                 'DELETE',
                 url,
-                data={'balance': self.channel.balance}
+                params={'balance': channel.balance}
             )
         except requests.exceptions.ConnectionError as err:
-            log.error(
+            logger.error(
                 'Could not get a response from the server while requesting a closing signature: {}'
                 .format(err)
             )
@@ -185,28 +228,46 @@ class Atn():
         failed = True
         if response is not None and response.status_code == requests.codes.OK:
             closing_sig = response.json()['close_signature']
-            failed = self.channel.close_cooperatively(decode_hex(closing_sig)) is None
+            dbot_owner = self.get_dbot_owner(dbot_address)
+            failed = channel.close_cooperatively(decode_hex(closing_sig), dbot_owner) is None
 
         if response is None or failed:
-            self.on_cooperative_close_denied(response)
+            logger.error('Cooperative close channel failed.')
+            self.on_cooperative_close_denied(dbot_address, response)
+        else:
+            logger.info('Cooperative close channel successfully')
 
-    def on_cooperative_close_denied(self, response: Response = None):
-        log.warning(
-            'No valid closing signature received. Closing noncooperatively on a balance of 0.'
-        )
-        # if cooperative close denied, client close the dbot unilaterally
-        self.channel.close(0)
+    def on_cooperative_close_denied(self, dbot_address: str, response: Response = None):
+        logger.warning('No valid closing signature received from DBot server({}).\n{}'.format(dbot_address, response.text))
+        logger.warning('Closing noncooperatively on a balance of 0.')
+        # if cooperative close denied, client close the dbot with balance 0 unilaterally
+        self.uncooperative_close(dbot_address, 0)
 
-    def _get_channel_info(self, receiver):
-        open_channels = self.channel_client.get_open_channels(receiver)
+    def uncooperative_close(self, dbot_address: str, balance: int):
+        channel = self.get_channel(dbot_address)
+        if channel is None:
+            logger.error('No channel to close.')
+            return
+        channel.close(balance)
+
+    def settle_channel(self, dbot_address: str):
+        channel = self.get_channel(dbot_address)
+        if channel is None:
+            logger.error('No channel to settle.')
+            return
+        channel.settle()
+
+    def get_channel(self, dbot_address: str):
+        open_channels = self.channel_client.get_channels(dbot_address)
         if open_channels:
             channel = open_channels[0]
             return channel
         else:
             return None
 
-    def _request_resource(
+    def _request(
             self,
+            channel: Channel,
             method: str,
             url: str,
             **requests_kwargs
@@ -217,12 +278,12 @@ class Atn():
         """
         headers = Munch()
         headers.contract_address = self.channel_client.context.channel_manager.address
-        if self.channel is not None:
-            headers.balance = str(self.channel.balance)
-            headers.balance_signature = encode_hex(self.channel.balance_sig)
-            headers.sender_address = self.channel.sender
-            headers.receiver_address = self.channel.receiver
-            headers.open_block = str(self.channel.block)
+        if channel is not None:
+            headers.balance = str(channel.balance)
+            headers.balance_signature = encode_hex(channel.balance_sig)
+            headers.sender_address = channel.sender
+            headers.receiver_address = channel.receiver
+            headers.open_block = str(channel.block)
 
         headers = HTTPHeaders.serialize(headers)
         if 'headers' in requests_kwargs:
@@ -275,7 +336,7 @@ class Atn():
     #          response: Response,
     #          **requests_kwargs
     #  ) -> bool:
-    #      log.warning('No Channel registered by DBot server')
+    #      logger.warning('No Channel registered by DBot server')
     #      return True
     #
     #  def on_insufficient_confirmations(
@@ -285,7 +346,7 @@ class Atn():
     #          response: Response,
     #          **requests_kwargs
     #  ) -> bool:
-    #      log.warning('Newly created channel does not have enough confirmations yet.')
+    #      logger.warning('Newly created channel does not have enough confirmations yet.')
     #      time.sleep(self.retry_interval)
     #      return True
     #
@@ -296,7 +357,7 @@ class Atn():
     #      response: Response,
     #      **requests_kwargs
     #  ) -> bool:
-    #      log.warning(
+    #      logger.warning(
     #          'Server was unable to verify the transfer - '
     #          'Either the balance was greater than deposit'
     #          'or the balance proof contained a lower balance than expected'
@@ -311,7 +372,7 @@ class Atn():
     #          response: Response,
     #          **requests_kwargs
     #  ) -> bool:
-    #      log.debug('Server claims an invalid amount sent.')
+    #      logger.debug('Server claims an invalid amount sent.')
     #      balance_sig = response.headers.get(HTTPHeaders.BALANCE_SIGNATURE)
     #      if balance_sig:
     #          balance_sig = decode_hex(balance_sig)
@@ -330,19 +391,19 @@ class Atn():
     #
     #      if verified:
     #          if last_balance == self.channel.balance:
-    #              log.error(
+    #              logger.error(
     #                  'Server tried to disguise the last unconfirmed payment as a confirmed payment.'
     #              )
     #              return False
     #          else:
-    #              log.debug(
+    #              logger.debug(
     #                  'Server provided proof for a different channel balance ({}). Adopting.'.format(
     #                      last_balance
     #                  )
     #              )
     #              self.channel.update_balance(last_balance)
     #      else:
-    #          log.debug(
+    #          logger.debug(
     #              'Server did not provide proof for a different channel balance. Reverting to 0.'
     #          )
     #          self.channel.update_balance(0)
@@ -362,7 +423,7 @@ class Atn():
     #      price = int(response.headers[HTTPHeaders.PRICE])
     #      assert price > 0
     #
-    #      log.debug('Preparing payment of price {} to {}.'.format(price, receiver))
+    #      logger.debug('Preparing payment of price {} to {}.'.format(price, receiver))
     #
     #      if self.channel is None or self.channel.state != Channel.State.open:
     #          new_channel = self.channel_client.get_suitable_channel(
@@ -372,7 +433,7 @@ class Atn():
     #          if self.channel is not None and new_channel != self.channel:
     #              # This should only happen if there are multiple open channels to the target or a
     #              # channel has been closed while the session is still being used.
-    #              log.warning(
+    #              logger.warning(
     #                  'Channels switched. Previous balance proofs not applicable to new channel.'
     #              )
     #
@@ -381,31 +442,31 @@ class Atn():
     #          self.channel.topup(self.topup_deposit(price))
     #
     #      if self.channel is None:
-    #          log.error("No channel could be created or sufficiently topped up.")
+    #          logger.error("No channel could be created or sufficiently topped up.")
     #          return False
     #
     #      self.channel.create_transfer(price)
-    #      log.debug(
+    #      logger.debug(
     #          'Sending new balance proof. New channel balance: {}/{}'
     #          .format(self.channel.balance, self.channel.deposit)
     #      )
     #      return True
     #
     #  def on_http_error(self, method: str, url: str, response: Response, **requests_kwargs) -> bool:
-    #      log.error('Unexpected server error, status code {}'.format(response.status_code))
+    #      logger.error('Unexpected server error, status code {}'.format(response.status_code))
     #      return False
     #
     #  def on_init(self, method: str, url: str, **requests_kwargs):
-    #      log.debug('Starting {} request loop for resource at {}.'.format(method, url))
+    #      logger.debug('Starting {} request loop for resource at {}.'.format(method, url))
     #
     #  def on_exit(self, method: str, url: str, response: Response, **requests_kwargs):
     #      pass
     #
     #  def on_success(self, method: str, url: str, response: Response, **requests_kwargs) -> bool:
-    #      log.debug('Resource received.')
+    #      logger.debug('Resource received.')
     #      cost = response.headers.get(HTTPHeaders.COST)
     #      if cost is not None:
-    #          log.debug('Final cost was {}.'.format(cost))
+    #          logger.debug('Final cost was {}.'.format(cost))
     #      return False
     #
     #  def on_invalid_contract_address(
@@ -416,7 +477,7 @@ class Atn():
     #          **requests_kwargs
     #  ) -> bool:
     #      contract_address = response.headers.get(HTTPHeaders.CONTRACT_ADDRESS)
-    #      log.error(
+    #      logger.error(
     #          'Server sent no or invalid contract address: {}.'.format(contract_address)
     #      )
     #      return False
@@ -425,5 +486,5 @@ class Atn():
     #  def on_http_response(self, method: str, url: str, response: Response, **requests_kwargs) -> bool:
     #      """Called whenever server returns a reply.
     #      Return False to abort current request."""
-    #      log.debug('Response received: {}'.format(response.headers))
+    #      logger.debug('Response received: {}'.format(response.headers))
     #      return True

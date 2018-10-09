@@ -1,3 +1,4 @@
+import os
 import logging
 from typing import List
 
@@ -20,7 +21,7 @@ from ..constants import WEB3_PROVIDER_DEFAULT
 from .context import Context
 from .channel import Channel
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger('atn.microraiden' + os.path.splitext(os.path.basename(__file__))[0])
 
 
 class Client:
@@ -125,7 +126,7 @@ class Client:
             c for c in channel_key_to_channel.values() if c.state != Channel.State.closed
         ]
 
-        log.debug('Synced a total of {} channels.'.format(len(self.channels)))
+        logger.debug('Synced a total of {} channels.'.format(len(self.channels)))
 
     def open_channel(self, receiver_address: str, deposit: int):
         """
@@ -140,14 +141,14 @@ class Client:
         balance = self.context.web3.eth.getBalance(self.context.address)
         #  token_balance = self.context.token.call().balanceOf(self.context.address)
         if balance < deposit:
-            log.error(
+            logger.error(
                 'Insufficient balance available for the specified deposit ({}/{})'
                 .format(balance, deposit)
             )
             return None
 
         current_block = self.context.web3.eth.blockNumber
-        log.info('Creating channel to {} with an initial deposit of {} @{}'.format(
+        logger.info('Creating channel to {} with an initial deposit of {} @{}'.format(
             receiver_address, deposit, current_block
         ))
 
@@ -170,9 +171,9 @@ class Client:
         #      deposit
         #  )
         ret = self.context.web3.eth.sendRawTransaction(tx)
-        log.info('transaction hash: {}'.format(Web3.toHex(ret)))
+        logger.info('transaction hash: {}'.format(Web3.toHex(ret)))
 
-        log.debug('Waiting for channel creation event on the blockchain...')
+        logger.debug('Waiting for channel creation event on the blockchain...')
         filters = {
             '_sender_address': self.context.address,
             '_receiver_address': receiver_address
@@ -186,7 +187,7 @@ class Client:
         )
 
         if event:
-            log.debug('Event received. Channel created in block {}.'.format(event['blockNumber']))
+            logger.debug('Event received. Channel created in block {}.'.format(event['blockNumber']))
             assert is_same_address(event['args']['_sender_address'], self.context.address)
             assert is_same_address(event['args']['_receiver_address'], receiver_address)
             channel = Channel(
@@ -199,10 +200,29 @@ class Client:
             )
             self.channels.append(channel)
         else:
-            log.error('Error: No event received.')
+            logger.error('Error: No event received.')
             channel = None
 
         return channel
+
+    def topup_channel(self, receiver_address: str, deposit: int):
+        open_channels = self.get_open_channels(receiver_address)
+        if open_channels:
+            capacity, channel = max(
+                ((c.deposit - c.balance, c) for c in open_channels), key=lambda x: x[0]
+            )
+            event = channel.topup(deposit)
+            return channel if event else None
+        else:
+            logger.error('Error: No channel to top up')
+            return None
+
+    def get_channels(self, receiver: str = None) -> List[Channel]:
+        return [
+            c for c in self.channels
+            if is_same_address(c.sender, self.context.address) and
+            (not receiver or is_same_address(c.receiver, receiver))
+        ]
 
     def get_open_channels(self, receiver: str = None) -> List[Channel]:
         """
@@ -217,7 +237,7 @@ class Client:
         ]
 
     def get_suitable_channel(
-            self, receiver, value, initial_deposit=lambda x: x, topup_deposit=lambda x: x
+            self, receiver, value, initial_deposit=None, topup_deposit=None
     ) -> Channel:
         """
         Searches stored channels for one that can sustain the given transfer value. If none is
@@ -241,7 +261,7 @@ class Client:
 
             if len(suitable_channels) > 1:
                 # This is not impossible but should only happen after bad channel management.
-                log.warning(
+                logger.warning(
                     'Warning: {} suitable channels found. '
                     'Choosing the one with the lowest remaining capacity.'
                     .format(len(suitable_channels))
@@ -250,7 +270,7 @@ class Client:
             capacity, channel = min(
                 ((c.deposit - c.balance, c) for c in suitable_channels), key=lambda x: x[0]
             )
-            log.debug(
+            logger.debug(
                 'Found suitable open channel, opened at block #{}.'.format(channel.block)
             )
             return channel
@@ -260,7 +280,7 @@ class Client:
 
             if len(open_channels) > 1:
                 # This is not impossible but should only happen after bad channel management.
-                log.warning(
+                logger.warning(
                     'Warning: {} open channels for topup found. '
                     'Choosing the one with the highest remaining capacity.'
                     .format(len(open_channels))
