@@ -1,11 +1,12 @@
 name = "pyatn-client"
 
-from . import microraiden
+from .microraiden.client import Client, Channel
 from .atn import Atn, AtnException
 
 
 __all__ = [
-    microraiden,
+    Client,
+    Channel,
     Atn,
     AtnException
 ]
