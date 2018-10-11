@@ -13,14 +13,14 @@ pip3 install pyatn-client
 
 ## Usage
 
-Use `pyatn` to create an account and get some ATN if you don't have an account before.
+1. Use command `pyatn` to create an account and get some ATN if you don't have an account before.
 
 ```bash
 pyatn create-account
 pyatn get-atn --address <Address of Account>
 ```
 
-It's simple to call a DBot's API with the python ATN client. An example could look like this.
+2. There are various DBots which provide AI API on our [AI Market](https://market-test.atnio.net). Here is an example, use [AI poetry](https://market-test.atnio.net/detail/0xfd4f504f373f0af5ff36d9fbe1050e6300699230) to write poetry.
 
 ```python
 from pyatn_client import Atn
@@ -46,7 +46,7 @@ for i in range(12):
                                 uri=URI,
                                 method=METHOD,
                                 **requests_kwargs)
-    print('Call {}:\n{}'.format(i + 1, response.text)
+    print('Call {}:\n{}'.format(i + 1, response.text))
 
 # close the channel only when you do not need it any more,
 # the remain balance in the channel will be returned to your account
@@ -54,8 +54,7 @@ atn.close_channel(DBOTADDRESS)
 
 ```
 
-
-In the example, channel will be auto created if no one between your account and the DBot, and will be topuped if the remain balance in the channel is not enough.
+In the example above, channel will be auto created if no one between your account and the DBot, and will be topuped if the remain balance in the channel is not enough.
 
 The deposit value is determined by `deposit_strategy`, which is a callable function with price of endpoint as input parameter. The default deposit value is 10 times the price of endpoint.
 
@@ -101,7 +100,7 @@ for i in range(12)
                                 uri=URI,
                                 method=METHOD,
                                 **requests_kwargs)
-    print('Call {}:\n{}'.format(i + 1, response.text)
+    print('Call {}:\n{}'.format(i + 1, response.text))
 
 ```
 
