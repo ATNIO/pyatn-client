@@ -44,8 +44,7 @@ class Atn():
     Usage::
 
       >>> from pyatn_client import Atn
-      >>> atn = Atn(http_provider=https://rpc-test.atnio.net
-      >>>           pk_file='<path to keystore file>',
+      >>> atn = Atn(pk_file='<path to keystore file>',
       >>>           pw_file='<path to password file>'
       >>> )
       >>> resp = atn.call_dbot_api(dbot_address='0xfd4F504F373f0af5Ff36D9fbe1050E6300699230',
@@ -56,16 +55,15 @@ class Atn():
     """
     def __init__(
         self,
-        http_provider: str,
         pk_file: str,
         pw_file: str,
-        deposit_strategy: Callable[[int], int] = lambda value: 10 * value,
-        debug: bool = False
+        http_provider: str = 'https://rpc-test.atnio.net',
+        deposit_strategy: Callable[[int], int] = lambda value: 10 * value
     ) -> None:
         """Init Atn Class
 
         """
-        logging.config.dictConfig(AtnLogger('atn', debug).config())
+        logging.config.dictConfig(AtnLogger('atn').config())
 
         w3 = Web3(HTTPProvider(http_provider))
         w3.middleware_stack.inject(geth_poa_middleware, layer=0)
@@ -215,35 +213,6 @@ class Atn():
         else:
             raise AtnException('Channel state with dbot({}) can not synced by dbot server.'.format(dbot_address))
 
-    def get_suitable_channel(self,
-                             dbot_address: str,
-                             price: int
-                             ) -> Channel:
-        if self.deposit_strategy is None:
-            channel = self.get_channel(dbot_address)
-            if channel is None:
-                logger.error('No channel was found with DBot({}), please create a channel first'.format(dbot_address))
-                raise AtnException('No channel was found with DBot({})'.format(dbot_address))
-            if not channel.is_suitable(price):
-                logger.error('Insufficient balance in the channel (remain balance = {}), please topup first'.format(
-                    channel.remain_balance()))
-                raise AtnException('Insufficient balance in the channel (remain balance = {}), please topup first'.format(
-                    channel.remain_balance()))
-            return channel
-        else:
-            channel = self.channel_client.get_suitable_channel(
-                dbot_address, price, self.deposit_strategy, self.deposit_strategy
-            )
-            if channel is None:
-                logger.error("No channel could be created or sufficiently topped up.")
-                raise AtnException('No channel could be created or sufficiently topped up.')
-
-            self.wait_dbot_sync(dbot_address)
-            if channel.remain_balance() < price:
-                channel.topup(self.deposit_strategy(price))
-                self.wait_dbot_sync(dbot_address)
-            return channel
-
     def call_dbot_api(self, dbot_address: str, uri: str, method: str, **requests_kwargs) -> Response:
         """Send the API's HTTP request
 
@@ -261,7 +230,7 @@ class Atn():
         """
         dbot_address = Web3.toChecksumAddress(dbot_address)
         price = self.get_price(dbot_address, uri, method)
-        channel = self.get_suitable_channel(dbot_address, price)
+        channel = self._get_suitable_channel(dbot_address, price)
         channel.create_transfer(price)
         domain = self.get_dbot_domain(dbot_address)
         dbot_url = domain if domain.lower().startswith('http') else 'http://{}'.format(domain)
@@ -376,9 +345,9 @@ class Atn():
         logger.warning('No valid closing signature received from DBot server({}).\n{}'.format(dbot_address, response.text))
         logger.warning('Closing noncooperatively on a balance of 0.')
         # if cooperative close denied, client close the channel with balance 0 unilaterally
-        self.uncooperative_close(dbot_address, 0)
+        self.uncooperative_close_channel(dbot_address, 0)
 
-    def uncooperative_close(self, dbot_address: str, balance: int) -> None:
+    def uncooperative_close_channel(self, dbot_address: str, balance: int) -> None:
         """Close the channel unilaterally
 
         If DBot server has down, you can close the channel with any balance.
@@ -420,6 +389,35 @@ class Atn():
             return channel
         else:
             return None
+
+    def _get_suitable_channel(self,
+                             dbot_address: str,
+                             price: int
+                             ) -> Channel:
+        if self.deposit_strategy is None:
+            channel = self.get_channel(dbot_address)
+            if channel is None:
+                logger.error('No channel was found with DBot({}), please create a channel first'.format(dbot_address))
+                raise AtnException('No channel was found with DBot({})'.format(dbot_address))
+            if not channel.is_suitable(price):
+                logger.error('Insufficient balance in the channel (remain balance = {}), please topup first'.format(
+                    channel.remain_balance()))
+                raise AtnException('Insufficient balance in the channel (remain balance = {}), please topup first'.format(
+                    channel.remain_balance()))
+            return channel
+        else:
+            channel = self.channel_client.get_suitable_channel(
+                dbot_address, price, self.deposit_strategy, self.deposit_strategy
+            )
+            if channel is None:
+                logger.error("No channel could be created or sufficiently topped up.")
+                raise AtnException('No channel could be created or sufficiently topped up.')
+
+            self.wait_dbot_sync(dbot_address)
+            if channel.remain_balance() < price:
+                channel.topup(self.deposit_strategy(price))
+                self.wait_dbot_sync(dbot_address)
+            return channel
 
     def _request(
             self,

@@ -9,12 +9,8 @@ LOGPATH = os.path.join(os.path.dirname(__file__), 'logs')
 os.makedirs(LOGPATH, exist_ok=True)
 
 class AtnLogger():
-    def __init__(self, name: str, debug: bool = False):
+    def __init__(self, name: str):
         self._name = name
-        self._debug = debug
-
-    def debug(self):
-        self._debug = True
 
     def config(self):
         return {
@@ -33,7 +29,7 @@ class AtnLogger():
             },
             'handlers': {
                 'console':{
-                    'level': 'DEBUG' if self._debug else 'INFO',
+                    'level': 'INFO',
                     'class':'logging.StreamHandler',
                     'formatter': 'simple'
                 },

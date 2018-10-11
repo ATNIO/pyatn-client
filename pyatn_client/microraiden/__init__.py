@@ -1,14 +1,9 @@
-from .client import (
-    Client,
-    Session
-)
+from .client import Client, Channel
 
-from .header import (
-    HTTPHeaders
-)
+from .header import HTTPHeaders
 
 __all__ = [
     Client,
-    Session,
+    Channel,
     HTTPHeaders
 ]

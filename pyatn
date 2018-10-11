@@ -6,6 +6,11 @@ import json
 import click
 import importlib.util
 import logging
+import getpass
+import requests
+import time
+
+from eth_account import Account
 
 from pyatn_client import Atn
 
@@ -21,10 +26,56 @@ def cli():
 
 @cli.command()
 @click.option(
+    '--output',
+    default='keystore',
+    help='Path to privatekey file and password file of the created account'
+)
+def create_account(output):
+    """
+    Create an encrypted account on ATN test net.
+    """
+    acct = Account.create()
+    password = getpass.getpass("Enter the password to encrypt your account: ")
+    encrypted = Account.encrypt(acct.privateKey, password)
+    os.makedirs(output, exist_ok=True)
+    acct_path = os.path.join(output, acct.address)
+    os.makedirs(acct_path, exist_ok=True)
+    pk_file = os.path.join(acct_path, 'privatekey')
+    pw_file = os.path.join(acct_path, 'password')
+    with open(pk_file, 'w') as fh:
+        fh.write(json.dumps(encrypted, indent=2))
+    with open(pw_file, 'w') as fh:
+        fh.write(password)
+    click.echo('A new account {} created.'.format(acct.address))
+    click.echo('The private  file saved at {}'.format(os.path.abspath(pk_file)))
+    click.echo('The password file saved at {}'.format(os.path.abspath(pw_file)))
+
+@cli.command()
+@click.option(
+    '--address',
+    required=True,
+    help='Address of the account to request ATN'
+)
+def get_atn(address):
+    """
+    Get ATN from the faucet server of ATN test net
+    """
+    resp = requests.post('http://119.3.57.66:4111/faucet/{}'.format(address))
+    if resp.status_code == 200:
+        click.echo('Get 100 ATN successfully. (One address can get 100 ATN everyday.)')
+        click.echo('Waiting 10 second for the transaction finished ...')
+        for i in range(10, 0, -1):
+            time.sleep(1)
+            click.echo(i)
+    else:
+        click.echo('Can not get ATN. Try to visit out faucet page "https://faucet-test.atnio.net/"')
+
+@cli.command()
+@click.option(
     '--pk-file',
     type=click.Path(exists=True, dir_okay=False, resolve_path=True),
     required=True,
-    help='Path to private key file or a hex-encoded private key.'
+    help='Path to private key file'
 )
 @click.option(
     '--pw-file',
@@ -34,17 +85,20 @@ def cli():
 )
 @click.option(
     '--http-provider',
-    required=True,
-    help='Http Provider'
+    default='https://rpc-test.atnio.net',
+    help='Web3 Http Provider, default is https://rpc-test.atnio.net'
 )
 @click.option(
     '--dbot-address',
     required=True,
-    help='dbot address')
+    help='Address of the DBot contract'
+)
 @click.option(
     '--data',
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
     required=True,
-    help="requests data for the dbot endpoint")
+    help="Path to python file containing requests data for the DBot API"
+)
 def call(
         pk_file: str,
         pw_file: str,
@@ -53,7 +107,8 @@ def call(
         data: str
 ):
     """
-    Sub command for API users to call DBot's API.
+    Call an API of the DBot.
+
     """
 
     requests_test = load_module(os.path.splitext(os.path.basename(data))[0],
@@ -115,6 +170,9 @@ def close(
     http_provider: str,
     dbot_address: str,
 ):
+    """
+    Close the channel with a DBot.
+    """
     atn = Atn(
         http_provider=http_provider,
         pk_file=pk_file,

@@ -13,16 +13,17 @@ pip3 install pyatn-client
 
 ## Usage
 
-An example could look like this. It's simple:
+Use `pyatn` to create an account and get some ATN if you don't have an account before.
+
+```bash
+pyatn create-account
+pyatn get-atn --address <Address of Account>
+```
+
+It's simple to call a DBot's API with the python ATN client. An example could look like this.
 
 ```python
 from pyatn_client import Atn
-
-atn = Atn(
-    http_provider='<Web3 Provider>',   # or use offical default one: https://rpc-test.atnio.net
-    pk_file='<path to keystore file>',
-    pw_file='<path to password file>'
-)
 
 DBOTADDRESS = '0xfd4F504F373f0af5Ff36D9fbe1050E6300699230' # address of the DBot you want to test, use 'AI poetry' as example
 URI = '/reg'        # uri of the DBot's API endpoint which you want to call
@@ -33,7 +34,13 @@ requests_kwargs = {
     }
 }
 
-# call DBot API 12 times
+# init Atn
+atn = Atn(
+    pk_file='<path to key file>',
+    pw_file='<path to password file>'
+)
+
+# Call a DBot API 12 times
 for i in range(12):
     response = atn.call_dbot_api(dbot_address=DBOTADDRESS,
                                 uri=URI,
@@ -48,22 +55,15 @@ atn.close_channel(DBOTADDRESS)
 ```
 
 
-In the example, channel will be auto created if no one between your account and the DBot, and channel will be topuped if the remain balance in the channel is not enough. The default deposit value is 10 times the price of endpoint.
+In the example, channel will be auto created if no one between your account and the DBot, and will be topuped if the remain balance in the channel is not enough.
 
-This behavior can be changed, the deposit value is determined by `deposit_strategy`, which is a callable function with price of endpoint as input parameter.
+The deposit value is determined by `deposit_strategy`, which is a callable function with price of endpoint as input parameter. The default deposit value is 10 times the price of endpoint.
 
-You can pass in `deposit_strategy` when init `Atn` or use `set_deposit_strategy` method to change it. It can be set `None` to disable auto create or topup the channel, then you should create or topup channel by yourself before call the `call_dbot_api` method. Here is an example.
+This behavior can be changed, You can pass in `deposit_strategy` when init class `Atn` or use `set_deposit_strategy` method to change it. It can be set `None` to disable auto create or topup the channel, then you should create or topup channel by yourself before call the `call_dbot_api` method. Here is an example.
 
 
 ```python
 from pyatn_client import Atn
-
-atn = Atn(
-    http_provider='<Web3 Provider>',    # or use offical default one: https://rpc-test.atnio.net
-    pk_file='<path to keystore file>',
-    pw_file='<path to password file>',
-    deposit_strategy=None,              # disable auto create or topup channel
-)
 
 DBOTADDRESS = '0xfd4F504F373f0af5Ff36D9fbe1050E6300699230' # address of the DBot you want to test
 URI = '/reg'        # uri of the DBot's API endpoint which you want to call
@@ -73,6 +73,13 @@ requests_kwargs = {
         "theme": "中秋月更圆"
     }
 }
+
+# init Atn with deposit_strategy=None, it will disable auto create or topup channel.
+atn = Atn(
+    pk_file='<path to keystore file>',
+    pw_file='<path to password file>',
+    deposit_strategy=None,              # disable auto create or topup channel
+)
 
 # get price of the endpoint to be called
 price = atn.get_price(DBOTADDRESS, URI, METHOD)
