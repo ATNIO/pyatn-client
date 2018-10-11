@@ -6,8 +6,7 @@ import os
 import stat
 
 from eth_utils import is_hex, decode_hex, encode_hex
-#  from ethereum import keys
-import eth_keyfile
+from eth_account import Account
 
 log = logging.getLogger(__name__)
 
@@ -52,5 +51,7 @@ def get_private_key(key_path, password_path=None):
                     password = password_file.readline().strip()
             else:
                 password = getpass.getpass("Enter the private key password: ")
-            private_key = eth_keyfile.extract_key_from_keyfile(key_path, password).hex()
+            with open(key_path) as fh:
+                encrypted = json.load(fh)
+                private_key = Account.decrypt(encrypted, password).hex()
     return private_key

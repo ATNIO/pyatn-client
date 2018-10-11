@@ -1,11 +1,11 @@
 import setuptools
 
-with open("README.md", "r") as fh:
+with open("README.md", "r", encoding='utf-8') as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name="pyatn-client",
-    version="0.0.6",
+    version="0.0.7",
     author="ovsoil",
     author_email="huaxin.yu@atmatrix.org",
     description="Python ATN Client",
@@ -18,7 +18,6 @@ setuptools.setup(
         'requests==2.19.1',
         'coincurve==9.0.0',
         'eth_account==0.3.0',
-        'eth_keyfile==0.5.1',
         'eth_utils==1.2.2',
         'ethereum==2.3.2',
         'gevent==1.3.6',
