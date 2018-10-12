@@ -7,7 +7,6 @@ from .crypto import (
     keccak256,
     keccak256_hex,
     sign,
-    sign_transaction,
     eth_message_hash,
     eth_sign,
     eth_verify,
@@ -23,12 +22,9 @@ from .crypto import (
 )
 
 from .contract import (
-    create_signed_transaction,
-    create_transaction,
-    create_signed_contract_transaction,
+    signed_transaction,
     signed_contract_transaction,
-    create_contract_transaction,
-    create_transaction_data,
+    signed_contract_transaction,
     get_logs,
     get_event_blocking,
     wait_for_transaction
@@ -53,7 +49,6 @@ __all__ = [
     keccak256,
     keccak256_hex,
     sign,
-    sign_transaction,
     eth_message_hash,
     eth_sign,
     eth_verify,
@@ -67,11 +62,8 @@ __all__ = [
     sign_close,
     verify_closing_sig,
 
-    create_signed_transaction,
-    create_transaction,
-    create_signed_contract_transaction,
-    create_contract_transaction,
-    create_transaction_data,
+    signed_transaction,
+    signed_contract_transaction,
     get_logs,
     get_event_blocking,
     wait_for_transaction,

@@ -9,7 +9,6 @@ from eth_utils import (
     is_0x_prefixed,
     to_checksum_address
 )
-from ethereum.transactions import Transaction
 import rlp
 
 
@@ -108,16 +107,6 @@ def sign(privkey: str, msg: bytes, v=0) -> bytes:
     sig = sig[:-1] + bytes([sig[-1] + v])
 
     return sig
-
-
-def sign_transaction(tx: Transaction, privkey: str, network_id: int):
-    # Implementing EIP 155.
-    tx.v = network_id
-    sig = sign(privkey, keccak256(rlp.encode(tx)), v=35 + 2 * network_id)
-    v, r, s = sig[-1], sig[0:32], sig[32:-1]
-    tx.v = v
-    tx.r = int.from_bytes(r, byteorder='big')
-    tx.s = int.from_bytes(s, byteorder='big')
 
 
 def eth_message_hash(msg: str) -> bytes:

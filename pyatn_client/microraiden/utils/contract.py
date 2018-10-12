@@ -1,110 +1,32 @@
 from typing import List, Any, Union, Dict
 
-import gevent
-import rlp
-from eth_utils import decode_hex, encode_hex
-from ethereum.transactions import Transaction
+import time
 from web3 import Web3
 from web3.contract import Contract
 from eth_account import Account
 
 from ..config import NETWORK_CFG
-from ..utils import privkey_to_addr, sign_transaction
 from ..utils.populus_compat import LogFilter
 
 DEFAULT_TIMEOUT = 60
 DEFAULT_RETRY_INTERVAL = 3
 
 
-def create_signed_transaction(
-        private_key: str,
-        web3: Web3,
-        to: str,
-        value: int=0,
-        data=b'',
-        nonce_offset: int = 0,
-        gas_price: Union[int, None] = None,
-        gas_limit: int = NETWORK_CFG.POT_GAS_LIMIT
-) -> str:
-    """
-    Creates a signed on-chain transaction compliant with EIP155.
-    """
-    if gas_price is None:
-        gas_price = NETWORK_CFG.GAS_PRICE
-    tx = create_transaction(
-        web3=web3,
-        from_=privkey_to_addr(private_key),
-        to=to,
-        value=value,
-        data=data,
-        nonce_offset=nonce_offset,
-        gas_price=gas_price,
-        gas_limit=gas_limit
-    )
-    sign_transaction(tx, private_key, int(web3.version.network))
-    return encode_hex(rlp.encode(tx))
-
-
-def create_transaction(
-        web3: Web3,
-        from_: str,
-        to: str,
-        data: bytes = b'',
-        nonce_offset: int = 0,
-        value: int = 0,
-        gas_price: Union[int, None] = None,
-        gas_limit: int = NETWORK_CFG.POT_GAS_LIMIT
-) -> Transaction:
-    if gas_price is None:
-        gas_price = NETWORK_CFG.GAS_PRICE
-    nonce = web3.eth.getTransactionCount(from_, 'pending') + nonce_offset
-    tx = Transaction(nonce, gas_price, gas_limit, to, value, data)
-    tx.sender = decode_hex(from_)
-    return tx
-
-
-def create_signed_transaction(
+def signed_transaction(
     web3: Web3,
-    private_key: str,
+    account: Account,
     to: str,
     value: int,
 ) -> str:
 
-    tx = create_transaction(
-        web3=web3,
-        from_=privkey_to_addr(private_key),
-        to=to,
-        value=value
-    )
-    sign_transaction(tx, private_key, int(web3.version.network))
-    return encode_hex(rlp.encode(tx))
-
-
-def create_signed_contract_transaction(
-        private_key: str,
-        contract: Contract,
-        func_name: str,
-        args: List[Any],
-        value: int=0,
-        nonce_offset: int = 0,
-        gas_price: Union[int, None] = None,
-        gas_limit: int = NETWORK_CFG.GAS_LIMIT
-):
-    if gas_price is None:
-        gas_price = NETWORK_CFG.GAS_PRICE
-    data = create_transaction_data(contract, func_name, args)
-    w3 = contract.web3
-    signed_txn = w3.eth.account.signTransaction(dict(
-        nonce=w3.eth.getTransactionCount(privkey_to_addr(private_key)),
-        gasPrice=gas_price,
-        gas=gas_limit,
-        to=contract.address,
-        value=value,
-        data=data,
-    ),
-        private_key,
-    )
-    return signed_txn.rawTransaction
+    tx = {
+        'to': to,
+        'value': value,
+        'gasPrice': web3.eth.gasPrice,
+        'nonce': web3.eth.getTransactionCount(account.address),
+        'chainId': int(web3.version.network)
+    }
+    return account.signTransaction(tx)
 
 
 def signed_contract_transaction(
@@ -115,72 +37,13 @@ def signed_contract_transaction(
     value: int=0
 ):
     web3 = contract.web3
-    gasPrice = web3.eth.gasPrice
     tx_data = contract.get_function_by_signature(func_sig)(*args).buildTransaction({
             'from': account.address,
             'nonce': web3.eth.getTransactionCount(account.address),
-            'gasPrice': web3.eth.gasPrice
+            'gasPrice': web3.eth.gasPrice,
+            'value': value
         })
     return account.signTransaction(tx_data)
-
-
-#  def create_signed_contract_transaction(
-#          private_key: str,
-#          contract: Contract,
-#          func_name: str,
-#          args: List[Any],
-#          value: int=0,
-#          nonce_offset: int = 0,
-#          gas_price: Union[int, None] = None,
-#          gas_limit: int = NETWORK_CFG.GAS_LIMIT
-#  ) -> str:
-#      """
-#      Creates a signed on-chain contract transaction compliant with EIP155.
-#      """
-#      if gas_price is None:
-#          gas_price = NETWORK_CFG.GAS_PRICE
-#      tx = create_contract_transaction(
-#          contract=contract,
-#          from_=privkey_to_addr(private_key),
-#          func_name=func_name,
-#          args=args,
-#          value=value,
-#          nonce_offset=nonce_offset,
-#          gas_price=gas_price,
-#          gas_limit=gas_limit
-#      )
-#      sign_transaction(tx, private_key, int(contract.web3.version.network))
-#      return encode_hex(rlp.encode(tx))
-
-
-def create_contract_transaction(
-        contract: Contract,
-        from_: str,
-        func_name: str,
-        args: List[Any],
-        value: int = 0,
-        nonce_offset: int = 0,
-        gas_price: Union[int, None] = None,
-        gas_limit: int = NETWORK_CFG.GAS_LIMIT
-) -> Transaction:
-    if gas_price is None:
-        gas_price = NETWORK_CFG.GAS_PRICE
-    data = create_transaction_data(contract, func_name, args)
-    return create_transaction(
-        web3=contract.web3,
-        from_=from_,
-        to=contract.address,
-        value=value,
-        data=data,
-        nonce_offset=nonce_offset,
-        gas_price=gas_price,
-        gas_limit=gas_limit
-    )
-
-
-def create_transaction_data(contract: Contract, func_name: str, args: List[Any]) -> bytes:
-    data = contract._prepare_transaction(func_name, args)['data']
-    return decode_hex(data)
 
 
 def get_logs(
@@ -248,7 +111,7 @@ def get_event_blocking(
 
 def _wait(duration: float):
     """For easy patching."""
-    gevent.sleep(duration)
+    time.sleep(duration)
 
 
 def wait_for_transaction(

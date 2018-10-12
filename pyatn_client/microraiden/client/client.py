@@ -12,7 +12,7 @@ from ..utils import (
     get_private_key,
     get_logs,
     get_event_blocking,
-    create_signed_contract_transaction,
+    signed_contract_transaction,
     signed_contract_transaction
 )
 
@@ -152,25 +152,16 @@ class Client:
             receiver_address, deposit, current_block
         ))
 
-        tx = create_signed_contract_transaction(
-            self.context.private_key,
+        tx = signed_contract_transaction(
+            self.context.account,
             self.context.channel_manager,
-            'createChannel',
+            'createChannel(address)',
             [
                 receiver_address
             ],
             deposit
         )
-        #  tx = signed_contract_transaction(
-        #      self.context.account,
-        #      self.context.channel_manager,
-        #      'createChannel(address)',
-        #      [
-        #          receiver_address
-        #      ],
-        #      deposit
-        #  )
-        ret = self.context.web3.eth.sendRawTransaction(tx)
+        ret = self.context.web3.eth.sendRawTransaction(tx.rawTransaction)
         logger.info('transaction hash: {}'.format(Web3.toHex(ret)))
 
         logger.debug('Waiting for channel creation event on the blockchain...')

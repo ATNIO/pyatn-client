@@ -8,7 +8,7 @@ from typing import Callable
 from .context import Context
 from ..utils import (
     get_event_blocking,
-    create_signed_contract_transaction,
+    signed_contract_transaction,
     sign_balance_proof,
     verify_closing_sig,
     keccak256
@@ -98,17 +98,17 @@ class Channel:
         data = (decode_hex(self.sender) +
                 decode_hex(self.receiver) +
                 self.block.to_bytes(4, byteorder='big'))
-        tx = create_signed_contract_transaction(
-            self.core.private_key,
+        tx = signed_contract_transaction(
+            self.core.account,
             self.core.channel_manager,
-            'topUp',
+            'topUp(address,uint32)',
             [
                 self.receiver,
                 self.block
             ],
             deposit
         )
-        self.core.web3.eth.sendRawTransaction(tx)
+        self.core.web3.eth.sendRawTransaction(tx.rawTransaction)
 
         logger.debug('Waiting for topup confirmation event...')
         event = get_event_blocking(
@@ -146,17 +146,17 @@ class Channel:
         if balance is not None:
             self.update_balance(balance)
 
-        tx = create_signed_contract_transaction(
-            self.core.private_key,
+        tx = signed_contract_transaction(
+            self.core.account,
             self.core.channel_manager,
-            'uncooperativeClose',
+            'uncooperativeClose(address,uint32,uint256)',
             [
                 self.receiver,
                 self.block,
                 self.balance
             ]
         )
-        self.core.web3.eth.sendRawTransaction(tx)
+        self.core.web3.eth.sendRawTransaction(tx.rawTransaction)
 
         logger.debug('Waiting for close confirmation event...')
         event = get_event_blocking(
@@ -212,10 +212,10 @@ class Channel:
                 logger.error('Invalid closing signature.')
                 return None
 
-        tx = create_signed_contract_transaction(
-            self.core.private_key,
+        tx = signed_contract_transaction(
+            self.core.account,
             self.core.channel_manager,
-            'cooperativeClose',
+            'cooperativeClose(address,uint32,uint256,bytes,bytes)',
             [
                 self.receiver,
                 self.block,
@@ -224,7 +224,7 @@ class Channel:
                 closing_sig
             ]
         )
-        self.core.web3.eth.sendRawTransaction(tx)
+        self.core.web3.eth.sendRawTransaction(tx.rawTransaction)
 
         logger.debug('Waiting for settle confirmation event...')
         event = get_event_blocking(
@@ -271,16 +271,16 @@ class Channel:
             ))
             return None
 
-        tx = create_signed_contract_transaction(
-            self.core.private_key,
+        tx = signed_contract_transaction(
+            self.core.account,
             self.core.channel_manager,
-            'settle',
+            'settle(address,uint32)',
             [
                 self.receiver,
                 self.block
             ]
         )
-        self.core.web3.eth.sendRawTransaction(tx)
+        self.core.web3.eth.sendRawTransaction(tx.rawTransaction)
 
         logger.debug('Waiting for settle confirmation event...')
         event = get_event_blocking(
