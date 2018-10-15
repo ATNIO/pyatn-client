@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 import os
 import re
 import json
@@ -160,8 +161,8 @@ def call(
 )
 @click.option(
     '--http-provider',
-    default='http://0.0.0.0:8545',
-    help='Http Provider'
+    default='https://rpc-test.atnio.net',
+    help='Web3 Http Provider, default is https://rpc-test.atnio.net'
 )
 @click.option('--dbot-address', required=True, help='dbot address')
 def close(

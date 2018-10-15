@@ -5,7 +5,7 @@
 
 ## Install
 
-Python ATN client depends on python3.6+, simply use pip3 to install:
+Python ATN client depends on python3.6+, simply use pip3 to install, See [Installation](install.md) for detail.
 
 ```bash
 pip3 install pyatn-client

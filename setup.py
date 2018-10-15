@@ -5,7 +5,7 @@ with open("README.md", "r", encoding='utf-8') as fh:
 
 setuptools.setup(
     name="pyatn-client",
-    version="0.0.7",
+    version="0.0.9",
     author="ovsoil",
     author_email="huaxin.yu@atmatrix.org",
     description="Python ATN Client",
@@ -19,8 +19,6 @@ setuptools.setup(
         'coincurve==9.0.0',
         'eth_account==0.3.0',
         'eth_utils==1.2.2',
-        'ethereum==2.3.2',
-        'gevent==1.3.6',
         'munch==2.3.2',
         'rlp==1.0.2',
         'typing==3.6.6',
@@ -29,9 +27,11 @@ setuptools.setup(
     package_data={
         '': ['contracts.json', 'microraiden/contracts.json']
     },
-    scripts=[
-        'pyatn'
-    ],
+    entry_points={
+        'console_scripts': [
+            'pyatn = pyatn_client.pyatn:cli',
+        ]
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
