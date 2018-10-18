@@ -10,6 +10,8 @@ import logging
 import getpass
 import requests
 import time
+from web3 import Web3, HTTPProvider
+from web3.middleware import geth_poa_middleware
 
 from eth_account import Account
 
@@ -61,6 +63,9 @@ def get_atn(address):
     """
     Get ATN from the faucet server of ATN test net
     """
+    w3 = Web3(HTTPProvider('https://rpc-test.atnio.net'))
+    w3.middleware_stack.inject(geth_poa_middleware, layer=0)
+    click.echo('ATN Balance is: {} ATN'.format(w3.fromWei(w3.eth.getBalance(address), 'ether')))
     resp = requests.post('http://119.3.57.66:4111/faucet/{}'.format(address))
     if resp.status_code == 200:
         click.echo('Get 100 ATN successfully. (One address can get 100 ATN everyday.)')
@@ -68,8 +73,20 @@ def get_atn(address):
         for i in range(10, 0, -1):
             time.sleep(1)
             click.echo(i)
+        click.echo('ATN Balance is: {} ATN'.format(w3.fromWei(w3.eth.getBalance(address), 'ether')))
     else:
         click.echo('Can not get ATN. Try to visit out faucet page "https://faucet-test.atnio.net/"')
+
+@cli.command()
+@click.option(
+    '--address',
+    required=True,
+    help='Address of the account to request ATN'
+)
+def get_balance(address):
+    w3 = Web3(HTTPProvider('https://rpc-test.atnio.net'))
+    w3.middleware_stack.inject(geth_poa_middleware, layer=0)
+    click.echo('ATN Balance is: {} ATN'.format(w3.fromWei(w3.eth.getBalance(address), 'ether')))
 
 @cli.command()
 @click.option(
