@@ -2,6 +2,7 @@
 
 **pyatn-client is Python ATN client, used to call DBot's API easily through payment channel**
 
+ATN client also has [Nodejs](https://github.com/ATNIO/atn-node-js) and [Javascript](https://github.com/ATNIO/atn-js) version.
 
 ## Install
 

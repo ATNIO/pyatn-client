@@ -5,7 +5,7 @@ with open("README.md", "r", encoding='utf-8') as fh:
 
 setuptools.setup(
     name="pyatn-client",
-    version="0.1.0",
+    version="0.1.1",
     author="ovsoil",
     author_email="huaxin.yu@atmatrix.org",
     description="Python ATN Client",
