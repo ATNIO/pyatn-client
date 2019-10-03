@@ -15,7 +15,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     install_requires=[
         'click==6.7',
-        'requests==2.19.1',
+        'requests==2.20.0',
         'coincurve==9.0.0',
         'eth_account==0.3.0',
         'eth_utils==1.2.2',
