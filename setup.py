@@ -17,7 +17,7 @@ setuptools.setup(
         'click==6.7',
         'requests==2.19.1',
         'coincurve==9.0.0',
-        'eth_account==0.3.0',
+        'eth_account==0.5.9',
         'eth_utils==1.2.2',
         'munch==2.3.2',
         'rlp==1.0.2',
